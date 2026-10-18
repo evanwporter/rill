@@ -45,4 +45,20 @@ pub fn build(b: *std.Build) void {
     exe.pie = pie;
 
     b.installArtifact(exe);
+
+    const column = b.createModule(.{
+        .root_source_file = b.path("src/column.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/column.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "column", .module = column }},
+        }),
+    });
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&b.addRunArtifact(tests).step);
 }
