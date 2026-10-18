@@ -3,6 +3,8 @@ const std = @import("std");
 const wayland = @import("wayland");
 const river = wayland.client.river;
 
+const column = @import("column.zig");
+
 pub const WindowManager = struct {
     gpa: std.mem.Allocator,
     io: std.Io,
@@ -55,12 +57,6 @@ pub const Output = struct {
     non_exclusive: ?Rectangle,
 };
 
-pub const Workspace = struct {
-    window_list: std.ArrayList(Window) = .empty,
-    focused_window_idx: ?usize = null,
-    is_floating: bool = false,
-};
-
 pub const Window = struct {
     river_window: *river.WindowV1,
     river_node: *river.NodeV1,
@@ -68,10 +64,57 @@ pub const Window = struct {
     should_close: bool,
     is_maximized: bool,
     is_fullscreen: bool,
+    /// This window shares a column with the tiled window before it in the
+    /// list, splitting that column's height rather than taking a slot of its
+    /// own in the scroll chain. A column is therefore a run of consecutive
+    /// tiled windows: a head with `stacked == false`, followed by its members.
+    stacked: bool,
     floating_rect: Rectangle,
     current_rect: Rectangle,
     start_rect: ?Rectangle,
     finish_rect: ?Rectangle,
+};
+
+pub const previousTiled = column.previousTiled;
+pub const nextTiled = column.nextTiled;
+pub const hasAbove = column.hasAbove;
+pub const hasBelow = column.hasBelow;
+
+/// The column arithmetic lives in `column.zig`, which knows nothing about
+/// wayland and is unit-tested on its own. These are thin bindings of it to the
+/// window list, so the tested code is the code that runs.
+pub const Workspace = struct {
+    window_list: std.ArrayList(Window) = .empty,
+    focused_window_idx: ?usize = null,
+    is_floating: bool = false,
+
+    pub fn columnHead(self: Workspace, idx: usize) usize {
+        return column.head(self.window_list.items, idx);
+    }
+
+    pub fn columnLen(self: Workspace, head_idx: usize) usize {
+        return column.len(self.window_list.items, head_idx);
+    }
+
+    pub fn columnEnd(self: Workspace, idx: usize) usize {
+        return column.end(self.window_list.items, idx);
+    }
+
+    pub fn previousColumn(self: Workspace, idx: usize) ?usize {
+        return column.previous(self.window_list.items, idx);
+    }
+
+    pub fn nextColumn(self: Workspace, idx: usize) ?usize {
+        return column.next(self.window_list.items, idx);
+    }
+
+    pub fn detachFromColumn(self: *Workspace, idx: usize) void {
+        column.detach(self.window_list.items, idx);
+    }
+
+    pub fn normalizeColumns(self: *Workspace) void {
+        column.normalize(self.window_list.items);
+    }
 };
 
 pub const Rectangle = struct {
@@ -109,7 +152,6 @@ pub const Config = struct {
     no_csd: bool = true,
     animation_duration: u32 = 200,
     cursor: ?struct { theme: [:0]const u8, size: u32 } = null,
-
     spawn_at_startup: []const []const []const u8 = &.{},
     keybindings: []const Keybinding = &default_keybindings,
     pointer_bindings: []const PointerBinding = &.{
@@ -168,9 +210,16 @@ pub const KeybindingAction = union(enum) {
     focus_window_right: void,
     focus_window_or_output_left: void,
     focus_window_or_output_right: void,
-
+    focus_window_up: void,
+    focus_window_down: void,
+    focus_window_or_workspace_up: void,
+    focus_window_or_workspace_down: void,
     move_window_left: void,
     move_window_right: void,
+    move_window_up: void,
+    move_window_down: void,
+    toggle_window_stacked: void,
+    set_window_stacked: bool,
     move_window_left_or_to_output_left: void,
     move_window_right_or_to_output_right: void,
 
@@ -224,6 +273,10 @@ const Button = enum(u32) {
 const PointerAction = enum { move_window, resize_window };
 
 const default_keybindings = [_]Keybinding{
+    .{ .key = "bracketleft", .modifiers = .{ .mod4 = true }, .action = .{ .set_window_stacked = true } },
+    .{ .key = "bracketright", .modifiers = .{ .mod4 = true }, .action = .{ .set_window_stacked = false } },
+    .{ .key = "braceleft", .modifiers = .{ .mod4 = true, .shift = true }, .action = .focus_window_up },
+    .{ .key = "braceright", .modifiers = .{ .mod4 = true, .shift = true }, .action = .focus_window_down },
     .{ .key = "q", .modifiers = .{ .mod4 = true }, .action = .close_window },
     .{ .key = "f", .modifiers = .{ .mod4 = true }, .action = .toggle_maximize },
     .{ .key = "f", .modifiers = .{ .mod4 = true, .shift = true }, .action = .toggle_fullscreen },

@@ -3,7 +3,6 @@ const std = @import("std");
 const wayland = @import("wayland");
 const river = wayland.client.river;
 
-const layout = @import("layout.zig");
 const types = @import("types.zig");
 
 pub var pending_windows = std.ArrayList(*river.WindowV1).empty;
@@ -43,6 +42,7 @@ pub fn windowListener(
 
                 switch (event) {
                     .closed => {
+                        workspace.detachFromColumn(idx);
                         _ = workspace.window_list.orderedRemove(idx);
                         river_window.destroy();
 
@@ -97,6 +97,7 @@ fn addWindow(
         .should_close = false,
         .is_maximized = false,
         .is_fullscreen = false,
+        .stacked = false,
         .floating_rect = initial_rect,
         .current_rect = initial_rect,
         .start_rect = null,
@@ -106,7 +107,7 @@ fn addWindow(
     const workspace = &output.workspace_list.items[output.focused_workspace_idx];
     var window_idx: usize = 0;
     if (workspace.focused_window_idx) |idx| {
-        window_idx = idx + 1;
+        window_idx = workspace.columnEnd(idx);
     }
 
     try workspace.window_list.insert(gpa, window_idx, window);

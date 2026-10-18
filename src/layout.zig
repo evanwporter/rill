@@ -3,6 +3,8 @@ const std = @import("std");
 const wayland = @import("wayland");
 const river = wayland.client.river;
 
+const column_math = @import("column.zig");
+
 const types = @import("types.zig");
 
 pub const edges = river.WindowV1.Edges{
@@ -158,61 +160,62 @@ fn scrollingLayout(
     y_offset: i32,
 ) void {
     const focused_window_idx = workspace.focused_window_idx orelse return;
-    const focused_window = &workspace.window_list.items[focused_window_idx];
+    var rect: types.Rectangle = undefined;
 
-    var placement_rect: types.Rectangle = undefined;
     const should_center = switch (config.center_focused_window) {
         .never => false,
         .always => true,
-        .single => workspace.window_list.items.len == 1,
+        .single => workspace.columnLen(0) == workspace.window_list.items.len,
     };
 
+    // The chain is a chain of columns, not of windows: a column takes
+    // one slot and its members divide that slot's height. A column of
+    // one is the whole slot, so an unstacked workspace lays out
+    // exactly as it did before columns existed.
+    const anchor_head_idx = workspace.columnHead(focused_window_idx);
+
     focusedWindowLayout(
-        focused_window,
-        &placement_rect,
+        &workspace.window_list.items[anchor_head_idx],
+        &rect,
         non_exclusive,
         output_rect,
         config,
         y_offset,
         should_center,
     );
+    const anchor_column_x = rect.x;
+    placeColumn(workspace, anchor_head_idx, rect, output_rect, config, y_offset);
 
-    focused_window.finish_rect = placement_rect;
-    placement_rect.x += placement_rect.width + config.horizontal_gap;
-
-    for (workspace.window_list.items[focused_window_idx + 1 ..]) |*window| {
+    rect.x += rect.width + config.horizontal_gap;
+    var forward_idx = workspace.nextColumn(anchor_head_idx);
+    while (forward_idx) |head_idx| {
         unfocusedWindowLayout(
-            window,
-            &placement_rect,
+            &workspace.window_list.items[head_idx],
+            &rect,
             non_exclusive,
             output_rect,
             config,
             y_offset,
         );
-
-        window.finish_rect = placement_rect;
-        placement_rect.x += placement_rect.width + config.horizontal_gap;
+        placeColumn(workspace, head_idx, rect, output_rect, config, y_offset);
+        rect.x += rect.width + config.horizontal_gap;
+        forward_idx = workspace.nextColumn(head_idx);
     }
 
-    const focused_window_rect = focused_window.finish_rect orelse return;
-    placement_rect.x = focused_window_rect.x;
-
-    var window_idx = focused_window_idx;
-    while (window_idx > 0) {
-        window_idx -= 1;
-        const window = &workspace.window_list.items[window_idx];
-
+    rect.x = anchor_column_x;
+    var backward_idx = workspace.previousColumn(anchor_head_idx);
+    while (backward_idx) |head_idx| {
         unfocusedWindowLayout(
-            window,
-            &placement_rect,
+            &workspace.window_list.items[head_idx],
+            &rect,
             non_exclusive,
             output_rect,
             config,
             y_offset,
         );
-
-        placement_rect.x -= config.horizontal_gap + placement_rect.width;
-        window.finish_rect = placement_rect;
+        rect.x -= config.horizontal_gap + rect.width;
+        placeColumn(workspace, head_idx, rect, output_rect, config, y_offset);
+        backward_idx = workspace.previousColumn(head_idx);
     }
 
     if (!should_center) snapToEdge(
@@ -303,26 +306,24 @@ fn unfocusedWindowLayout(
 fn snapToEdge(
     window_list: std.ArrayList(types.Window),
     non_exclusive: types.Rectangle,
-    h_gap: i32,
+    gap: i32,
 ) void {
-    const head_rect = window_list.items[0].finish_rect orelse return;
-    const head_x = head_rect.x;
-    const left_bound = non_exclusive.x + h_gap;
+    var head_window: ?types.Window = null;
+    var tail_window: ?types.Window = null;
+    for (window_list.items) |window| {
+        if (head_window == null) head_window = window;
+        tail_window = window;
+    }
+    const head = (head_window orelse return).finish_rect.?.x;
 
     var head_distance: ?i32 = null;
-    if (head_x > left_bound) {
-        head_distance = head_x - left_bound;
-    }
-
-    const tail_window = window_list.items[window_list.items.len - 1];
-    const tail_rect = tail_window.finish_rect orelse return;
-    const tail_x = tail_rect.x + tail_rect.width;
-    const right_bound = non_exclusive.x + non_exclusive.width - h_gap;
+    const left = non_exclusive.x + gap;
+    if (head > left) head_distance = head - left;
 
     var tail_distance: ?i32 = null;
-    if (tail_x < right_bound) {
-        tail_distance = @min(right_bound - tail_x, left_bound - head_x);
-    }
+    const tail = tail_window.?.finish_rect.?.x + tail_window.?.finish_rect.?.width;
+    const right = non_exclusive.x + non_exclusive.width - gap;
+    if (tail < right) tail_distance = @min(right - tail, left - head);
 
     for (window_list.items) |*window| {
         const x = &window.finish_rect.?.x;
@@ -331,5 +332,51 @@ fn snapToEdge(
         } else if (tail_distance) |distance| {
             x.* += distance;
         }
+    }
+}
+
+fn placeColumn(
+    workspace: types.Workspace,
+    head_idx: usize,
+    column: types.Rectangle,
+    output_rect: types.Rectangle,
+    config: types.Config,
+    y_offset: i32,
+) void {
+    const items = workspace.window_list.items;
+    const count = workspace.columnLen(head_idx);
+
+    var y = column.y;
+    var placed: usize = 0;
+    var idx = head_idx;
+    while (true) {
+        const window = &items[idx];
+        window.start_rect = window.current_rect;
+
+        const slot: types.Rectangle = if (count == 1) column else blk: {
+            const height = column_math.slotHeight(
+                column.y + column.height - y,
+                config.vertical_gap,
+                @intCast(count - placed),
+            );
+            defer y += height + config.vertical_gap;
+            break :blk .{
+                .width = column.width,
+                .height = height,
+                .x = column.x,
+                .y = y,
+            };
+        };
+
+        if (window.is_fullscreen) {
+            window.finish_rect = output_rect;
+            window.finish_rect.?.y += y_offset;
+        } else {
+            window.finish_rect = slot;
+        }
+
+        placed += 1;
+        if (placed == count) break;
+        idx = types.nextTiled(items, idx) orelse break;
     }
 }

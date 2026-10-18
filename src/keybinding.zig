@@ -106,7 +106,10 @@ fn handleKeybindingAction(
         .toggle_workspace_floating => workspace.is_floating = !workspace.is_floating,
         .adjust_window_width => |increment| {
             if (workspace.is_floating) return;
-            const window_idx = workspace.focused_window_idx orelse return;
+            const focused_idx = workspace.focused_window_idx orelse return;
+            // A column's width comes from its head, so widening any member has
+            // to widen the head or the change is invisible.
+            const window_idx = workspace.columnHead(focused_idx);
             var window = &workspace.window_list.items[window_idx];
             if (window.is_fullscreen) return;
 
@@ -124,10 +127,9 @@ fn handleKeybindingAction(
         },
         .set_window_width => |proportion| {
             if (workspace.is_floating) return;
-            const window_idx = workspace.focused_window_idx orelse return;
-            var window = &workspace.window_list.items[window_idx];
+            const focused_idx = workspace.focused_window_idx orelse return;
+            var window = &workspace.window_list.items[workspace.columnHead(focused_idx)];
             if (window.is_fullscreen) return;
-
             window.is_maximized = false;
             window.proportion = proportion;
         },
@@ -153,52 +155,130 @@ fn handleKeybindingAction(
         .focus_window_left => {
             if (workspace.is_floating) return;
             const window_idx = workspace.focused_window_idx orelse return;
-            if (window_idx == 0) return;
-            workspace.focused_window_idx = window_idx - 1;
-        },
-        .focus_window_right => {
-            if (workspace.is_floating) return;
-            const window_idx = workspace.focused_window_idx orelse return;
-            if (window_idx == workspace.window_list.items.len - 1) return;
-            workspace.focused_window_idx = window_idx + 1;
+            // Horizontal movement steps over a whole column; focus_window_up
+            // and focus_window_down move inside one. Stepping from the column
+            // head rather than from the focused window means leaving a column
+            // lands on the neighbour, not on the top of the column just left.
+            const head_idx = workspace.columnHead(window_idx);
+            if (head_idx == 0) return;
+            workspace.focused_window_idx = workspace.columnHead(head_idx - 1);
         },
         .focus_window_or_output_left => {
             const window_idx = workspace.focused_window_idx orelse return;
-            if (workspace.is_floating or window_idx == 0) {
+            // The edge of the chain is the edge of the leftmost *column*: a
+            // member of it is at the edge too, even though its index is not 0.
+            if (workspace.is_floating or workspace.columnHead(window_idx) == 0) {
                 continue :action_switch .focus_output_left;
             }
             continue :action_switch .focus_window_left;
         },
+        .focus_window_right => {
+            if (workspace.is_floating) return;
+            const window_idx = workspace.focused_window_idx orelse return;
+            const next_idx = workspace.columnEnd(window_idx);
+            if (next_idx >= workspace.window_list.items.len) return;
+            workspace.focused_window_idx = next_idx;
+        },
         .focus_window_or_output_right => {
             const window_idx = workspace.focused_window_idx orelse return;
-            if (workspace.is_floating or window_idx == workspace.window_list.items.len - 1) {
+            if (workspace.is_floating or
+                workspace.columnEnd(window_idx) >= workspace.window_list.items.len)
+            {
                 continue :action_switch .focus_output_right;
             }
             continue :action_switch .focus_window_right;
+        },
+        .focus_window_up => {
+            if (workspace.is_floating) return;
+            const window_idx = workspace.focused_window_idx orelse return;
+            const items = workspace.window_list.items;
+            if (!types.hasAbove(items, window_idx)) return;
+            workspace.focused_window_idx =
+                types.previousTiled(items, window_idx) orelse return;
+        },
+        .focus_window_down => {
+            if (workspace.is_floating) return;
+            const window_idx = workspace.focused_window_idx orelse return;
+            const items = workspace.window_list.items;
+            if (!types.hasBelow(items, window_idx)) return;
+            workspace.focused_window_idx =
+                types.nextTiled(items, window_idx) orelse return;
+        },
+        // Vertical movement that falls out of the column at its ends: inside a
+        // stack these step between members, and at the top or bottom member
+        // they carry on to the workspace above or below. A window that is not
+        // stacked has neither, so this is plain workspace switching until a
+        // column is built - which is what makes it safe to put on Super+J/K.
+        .focus_window_or_workspace_up => {
+            if (workspace.is_floating) continue :action_switch .focus_workspace_above;
+            const window_idx = workspace.focused_window_idx orelse
+                continue :action_switch .focus_workspace_above;
+            if (!types.hasAbove(workspace.window_list.items, window_idx)) {
+                continue :action_switch .focus_workspace_above;
+            }
+            continue :action_switch .focus_window_up;
+        },
+        .focus_window_or_workspace_down => {
+            if (workspace.is_floating) continue :action_switch .focus_workspace_below;
+            const window_idx = workspace.focused_window_idx orelse
+                continue :action_switch .focus_workspace_below;
+            if (!types.hasBelow(workspace.window_list.items, window_idx)) {
+                continue :action_switch .focus_workspace_below;
+            }
+            continue :action_switch .focus_window_down;
+        },
+        .move_window_up => {
+            if (workspace.is_floating) return;
+            const window_idx = workspace.focused_window_idx orelse return;
+            const items = workspace.window_list.items;
+            if (!types.hasAbove(items, window_idx)) return;
+            const above_idx = types.previousTiled(items, window_idx) orelse return;
+            swapWindows(items, window_idx, above_idx);
+            workspace.focused_window_idx = above_idx;
+        },
+        .move_window_down => {
+            if (workspace.is_floating) return;
+            const window_idx = workspace.focused_window_idx orelse return;
+            const items = workspace.window_list.items;
+            if (!types.hasBelow(items, window_idx)) return;
+            const below_idx = types.nextTiled(items, window_idx) orelse return;
+            swapWindows(items, window_idx, below_idx);
+            workspace.focused_window_idx = below_idx;
+        },
+        .set_window_stacked => |stacked| {
+            const window_idx = workspace.focused_window_idx orelse return;
+            if (workspace.window_list.items[window_idx].stacked == stacked) return;
+            continue :action_switch .toggle_window_stacked;
+        },
+        .toggle_window_stacked => {
+            if (workspace.is_floating) return;
+            const window_idx = workspace.focused_window_idx orelse return;
+            const window = &workspace.window_list.items[window_idx];
+            if (window.stacked) {
+                // Leaving a column mid-way starts a new one here; the members
+                // below follow this window into it.
+                window.stacked = false;
+            } else {
+                // Nothing to the left to stack onto.
+                if (types.previousTiled(workspace.window_list.items, window_idx) == null) return;
+                window.stacked = true;
+            }
         },
         .move_window_left => {
             if (workspace.is_floating) return;
             const window_idx = workspace.focused_window_idx orelse return;
             if (window_idx == 0) return;
-
-            std.mem.swap(
-                types.Window,
-                &workspace.window_list.items[window_idx],
-                &workspace.window_list.items[window_idx - 1],
-            );
+            swapWindows(workspace.window_list.items, window_idx, window_idx - 1);
             workspace.focused_window_idx = window_idx - 1;
+            workspace.normalizeColumns();
         },
         .move_window_right => {
             if (workspace.is_floating) return;
             const window_idx = workspace.focused_window_idx orelse return;
             if (window_idx == workspace.window_list.items.len - 1) return;
-
-            std.mem.swap(
-                types.Window,
-                &workspace.window_list.items[window_idx],
-                &workspace.window_list.items[window_idx + 1],
-            );
+            swapWindows(workspace.window_list.items, window_idx, window_idx + 1);
             workspace.focused_window_idx = window_idx + 1;
+            workspace.normalizeColumns();
         },
         .move_window_left_or_to_output_left => {
             const window_idx = workspace.focused_window_idx orelse return;
@@ -572,13 +652,23 @@ fn handleKeybindingAction(
     wm.task = .layout;
 }
 
+fn swapWindows(items: []types.Window, a_idx: usize, b_idx: usize) void {
+    const a_stacked = items[a_idx].stacked;
+    const b_stacked = items[b_idx].stacked;
+    std.mem.swap(types.Window, &items[a_idx], &items[b_idx]);
+    items[a_idx].stacked = a_stacked;
+    items[b_idx].stacked = b_stacked;
+}
+
 fn sendFocusedWindowToWorkspace(
     gpa: std.mem.Allocator,
     current: *types.Workspace,
     target: *types.Workspace,
 ) !void {
     const window_idx = current.focused_window_idx orelse return error.NoFocusedWindow;
-    const window = current.window_list.orderedRemove(window_idx);
+    current.detachFromColumn(window_idx);
+    var window = current.window_list.orderedRemove(window_idx);
+    window.stacked = false;
 
     if (current.window_list.items.len == 0) {
         current.focused_window_idx = null;
@@ -588,7 +678,7 @@ fn sendFocusedWindowToWorkspace(
 
     var target_window_idx: usize = 0;
     if (target.focused_window_idx) |idx| {
-        target_window_idx = idx + 1;
+        target_window_idx = target.columnEnd(idx);
     }
 
     try target.window_list.insert(gpa, target_window_idx, window);

@@ -37,6 +37,13 @@
     },
 
     .keybindings = .{
+        // Join the column to the left, or split this window into a new column.
+        .{ .key = "bracketleft", .modifiers = .{ .mod4 = true }, .action = .{ .set_window_stacked = true } },
+        .{ .key = "bracketright", .modifiers = .{ .mod4 = true }, .action = .{ .set_window_stacked = false } },
+        // Focus the window above or below within the column.
+        .{ .key = "braceleft", .modifiers = .{ .mod4 = true, .shift = true }, .action = .focus_window_up },
+        .{ .key = "braceright", .modifiers = .{ .mod4 = true, .shift = true }, .action = .focus_window_down },
+
         // Key: keysym names (case insensitive) from xkbcommon-keysyms.h
         // Common ones include:
         // "Left", "Up", "Right", "Down", "BackSpace", "Tab", "Space", "Return", "Escape", "Delete",

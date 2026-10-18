@@ -35,9 +35,19 @@ pub fn publish(wm: *types.WindowManager) !void {
         const workspaces = try allocator.alloc(Workspace, output.workspace_list.items.len);
         for (output.workspace_list.items, 0..) |workspace, i| {
             var tiles: std.ArrayList(Tile) = .empty;
+            const focused_tile_idx = if (workspace.focused_window_idx) |j|
+                if (workspace.is_floating)
+                    j
+                else
+                    workspace.columnHead(j)
+            else
+                null;
             for (workspace.window_list.items, 0..) |window, j| {
+                // A stacked column occupies one horizontal slot. Floating
+                // workspaces still report each window.
+                if (!workspace.is_floating and workspace.columnHead(j) != j) continue;
                 const rect = window.finish_rect orelse window.current_rect;
-                try tiles.append(allocator, .{ .number = tiles.items.len + 1, .window = j + 1, .x = rect.x, .width = rect.width, .focused = workspace.focused_window_idx == j });
+                try tiles.append(allocator, .{ .number = tiles.items.len + 1, .window = j + 1, .x = rect.x, .width = rect.width, .focused = focused_tile_idx == j });
             }
             workspaces[i] = .{
                 .floating = workspace.is_floating,
