@@ -11,8 +11,11 @@ const output = @import("output.zig");
 const seat = @import("seat.zig");
 const types = @import("types.zig");
 const window = @import("window.zig");
+const control = @import("control.zig");
+const workspace_status = @import("status.zig");
 
 pub fn main(init: std.process.Init) !void {
+    if (try control.client(init)) return;
     _ = std.os.linux.prctl(
         @backingInt(std.os.linux.PR.SET_PDEATHSIG),
         @backingInt(std.posix.SIG.TERM),
@@ -54,6 +57,7 @@ pub fn main(init: std.process.Init) !void {
         .is_passthrough = false,
     };
     defer wm.deinit();
+    defer workspace_status.clear(&wm);
 
     registry.setListener(*types.WindowManager, registryListener, &wm);
     _ = display.roundtrip();
@@ -67,8 +71,19 @@ pub fn main(init: std.process.Init) !void {
         };
     }
 
+    var commands = try control.Server.init(&wm);
+    defer commands.deinit();
     while (true) {
-        const status = display.dispatch();
+        while (!display.prepareRead()) {
+            if (display.dispatchPending() != .SUCCESS) return error.WaylandDispatch;
+        }
+        _ = display.flush();
+        const ready = commands.wait(display.getFd());
+        if (ready.wayland) {
+            if (display.readEvents() != .SUCCESS) return error.WaylandRead;
+        } else display.cancelRead();
+        if (ready.command) commands.receive(&wm);
+        const status = display.dispatchPending();
         if (status != .SUCCESS) {
             std.debug.print("Window manager stopped with status: {}\n", .{status});
             break;
@@ -151,7 +166,15 @@ fn handleWindowManagerEvent(
             wm.task = .prepare_window;
         },
         .manage_start => {
+            const exiting = wm.task == .exit;
             try manage(wm.gpa, wm.io, wm);
+            if (exiting) {
+                workspace_status.clear(wm);
+            } else {
+                workspace_status.publish(wm) catch |err| {
+                    std.debug.print("Failed to publish workspace status: {}\n", .{err});
+                };
+            }
             river_window_manager.manageFinish();
         },
         .render_start => river_window_manager.renderFinish(),
