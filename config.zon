@@ -31,6 +31,9 @@
 
     .spawn_at_startup = .{
         // .{ "command", "to", "run" },
+        .{"noctalia"},
+        .{ "wlr-randr", "--output", "eDP-1", "--scale", "1.75" },
+        .{ "swaybg", "-i", "/home/evanp/dotfiles/nix/resources/wallpaper/gargantua-black-3840x2160-9621.jpg" },
     },
 
     .keybindings = .{
@@ -43,8 +46,8 @@
         // Modifiers: shift, ctrl, mod1 (alt), mod4 (super)
 
         .{ .key = "q", .modifiers = .{ .mod4 = true }, .action = .close_window },
-        .{ .key = "f", .modifiers = .{ .mod4 = true }, .action = .toggle_maximize },
-        .{ .key = "f", .modifiers = .{ .mod4 = true, .shift = true }, .action = .toggle_fullscreen },
+        .{ .key = "m", .modifiers = .{ .mod4 = true }, .action = .toggle_maximize },
+        .{ .key = "m", .modifiers = .{ .mod4 = true, .shift = true }, .action = .toggle_fullscreen },
 
         // Toggle floating mode for the current workspace
         // .{ .key = "v", .modifiers = .{ .mod4 = true }, .action = .toggle_workspace_floating },
@@ -58,15 +61,15 @@
         // Set focused window's width to 0.5 of the output's available width
         // .{ .key = "BackSpace", .modifiers = .{ .mod4 = true }, .action = .{ .set_window_width = 0.5 } },
 
-        .{ .key = "Escape", .modifiers = .{ .mod4 = true }, .action = .exit },
-        .{ .key = "r", .modifiers = .{ .mod4 = true }, .action = .reload_config },
+        .{ .key = "e", .modifiers = .{ .mod4 = true, .shift = true }, .action = .exit },
+        .{ .key = "c", .modifiers = .{ .mod4 = true, .shift = true }, .action = .reload_config },
 
         // In passthrough mode all other bindings are disabled
         // to pass keyboard and mouse events to the client window
         // .{ .key = "F11", .modifiers = .{ .mod4 = true }, .action = .toggle_passthrough },
 
         // "Super t" to spawn alacritty
-        .{ .key = "t", .modifiers = .{ .mod4 = true }, .action = .{ .spawn = .{"alacritty"} } },
+        .{ .key = "Return", .modifiers = .{ .mod4 = true }, .action = .{ .spawn = .{"kitty"} } },
 
         // Keybinding without modifier keys:
         // .{
@@ -78,7 +81,15 @@
         // },
 
         .{
-            .key = "Left",
+            .key = "space",
+            .modifiers = .{ .mod4 = true },
+            .action = .{
+                .spawn = .{ "noctalia", "msg", "panel-toggle", "launcher" },
+            },
+        },
+
+        .{
+            .key = "h",
             .modifiers = .{ .mod4 = true },
             .action = .focus_window_left,
 
@@ -87,20 +98,20 @@
             // .action = .focus_window_or_output_left,
         },
         .{
-            .key = "Right",
+            .key = "l",
             .modifiers = .{ .mod4 = true },
             .action = .focus_window_right,
             // .action = .focus_window_or_output_right,
         },
 
         .{
-            .key = "Left",
+            .key = "h",
             .modifiers = .{ .mod4 = true, .shift = true },
             .action = .move_window_left,
             // .action = .move_window_left_or_to_output_left,
         },
         .{
-            .key = "Right",
+            .key = "l",
             .modifiers = .{ .mod4 = true, .shift = true },
             .action = .move_window_right,
             // .action = .move_window_right_or_to_output_right,
