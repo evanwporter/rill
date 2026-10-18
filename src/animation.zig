@@ -2,6 +2,8 @@ const std = @import("std");
 
 const types = @import("types.zig");
 
+/// Advances window animations by interpolating between their starting and
+/// finishing rectangles using a cubic ease-out function.
 pub fn apply(
     output_list: std.ArrayList(types.Output),
     focused_output_idx: usize,
@@ -71,6 +73,7 @@ pub fn apply(
     }
 }
 
+/// Applies a window's current geometry to its River window and scene node.
 fn placeWindow(
     window: *types.Window,
     output_rect: types.Rectangle,

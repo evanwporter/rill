@@ -7,6 +7,7 @@ const column_math = @import("column.zig");
 
 const types = @import("types.zig");
 
+/// Window borders to configure on all four sides.
 pub const edges = river.WindowV1.Edges{
     .top = true,
     .bottom = true,
@@ -122,6 +123,7 @@ fn handleDynamicWorkspaces(
     try output.workspace_list.append(gpa, .{});
 }
 
+/// Layouts windows in floating layout.
 fn floatingLayout(
     window_list: std.ArrayList(types.Window),
     non_exclusive: types.Rectangle,
@@ -152,6 +154,7 @@ fn floatingLayout(
     }
 }
 
+/// Arrange in scrolling layout
 fn scrollingLayout(
     workspace: types.Workspace,
     non_exclusive: types.Rectangle,
@@ -234,7 +237,10 @@ fn focusedWindowLayout(
     y_offset: i32,
     should_center: bool,
 ) void {
+    // Horizontal gap
     const h_gap = config.horizontal_gap;
+
+    // Vertical gap
     const v_gap = config.vertical_gap;
 
     var proportion = window.proportion;
