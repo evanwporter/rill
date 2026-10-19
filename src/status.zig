@@ -1,7 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 
-const Tile = struct { number: usize, window: usize, x: i32, width: i32, focused: bool };
+const Tile = struct { number: usize, window: usize, x: i32, width: i32, focused: bool, app_id: []const u8 };
 const Workspace = struct {
     number: usize,
     active: bool,
@@ -47,7 +47,7 @@ pub fn publish(wm: *types.WindowManager) !void {
                 // workspaces still report each window.
                 if (!workspace.is_floating and workspace.columnHead(j) != j) continue;
                 const rect = window.finish_rect orelse window.current_rect;
-                try tiles.append(allocator, .{ .number = tiles.items.len + 1, .window = j + 1, .x = rect.x, .width = rect.width, .focused = focused_tile_idx == j });
+                try tiles.append(allocator, .{ .number = tiles.items.len + 1, .window = j + 1, .x = rect.x, .width = rect.width, .focused = focused_tile_idx == j, .app_id = @import("window.zig").appId(window.river_window) });
             }
             workspaces[i] = .{
                 .floating = workspace.is_floating,

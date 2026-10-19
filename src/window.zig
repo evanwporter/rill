@@ -7,11 +7,32 @@ const types = @import("types.zig");
 
 pub var pending_windows = std.ArrayList(*river.WindowV1).empty;
 
+// App IDs can arrive before the first dimensions event creates the window.
+var app_ids: std.AutoHashMapUnmanaged(*river.WindowV1, []const u8) = .empty;
+
+pub fn appId(window: *river.WindowV1) []const u8 {
+    return app_ids.get(window) orelse "";
+}
+
 pub fn windowListener(
     river_window: *river.WindowV1,
     event: river.WindowV1.Event,
     wm: *types.WindowManager,
 ) void {
+    if (event == .app_id) {
+        const id = if (event.app_id.app_id) |value| std.mem.span(value) else "";
+        const copy = wm.gpa.dupe(u8, id) catch return;
+        const entry = app_ids.getOrPut(wm.gpa, river_window) catch {
+            wm.gpa.free(copy);
+            return;
+        };
+        if (entry.found_existing) wm.gpa.free(entry.value_ptr.*);
+        entry.value_ptr.* = copy;
+        return;
+    }
+    if (event == .closed) {
+        if (app_ids.fetchRemove(river_window)) |entry| wm.gpa.free(entry.value);
+    }
     if (event == .dimensions) {
         const river_window_manager = wm.river_window_manager orelse return;
         const output_idx = wm.focused_output_idx orelse return;
