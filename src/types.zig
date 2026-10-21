@@ -59,9 +59,16 @@ pub const Output = struct {
 };
 
 pub const Workspace = struct {
+    column_list: std.ArrayList(Column) = .empty,
     window_list: std.ArrayList(Window) = .empty,
+    focused_column_idx: ?usize = null,
     focused_window_idx: ?usize = null,
     is_floating: bool = false,
+};
+
+/// A column is a vertical tiling of one or more windows
+pub const Column = struct {
+    window_list: std.ArrayList(Window) = .empty,
 };
 
 pub const Window = struct {
